@@ -17,6 +17,14 @@
 
 ### 1. Add `create` action to `DashboardViewSet`
 **File:** `django_project/geosight/data/api/v1/dashboard.py`  
+- Modify class inheritance: add `BaseApiV1ResourceWriteOnly` to enable write capability
+  ```python
+  class DashboardViewSet(
+      BaseApiV1ResourceReadOnly,
+      BaseApiV1ResourceWriteOnly,  # Add this
+      BaseApiV1ResourceDeleteOnly
+  ):
+  ```
 - Add `form_class = DashboardForm` as class attribute
 - Implement `create` method:
   ```python
@@ -67,7 +75,7 @@
       return Response(dict(form.errors.items()), status=status.HTTP_400_BAD_REQUEST)
   ```
 - Add imports: `from django.db import transaction`, `from geosight.data.forms.dashboard import DashboardForm`, `from geosight.data.serializer.dashboard import DashboardSerializer`, `from rest_framework import status`
-- **Note:** Follows base class pattern with only dashboard-specific additions: `save_relations()` call and `increase_version()`. Includes `request.FILES` for icon upload and `transaction.atomic()` for rollback safety.
+- **Note:** Follows base class pattern with dashboard-specific additions: `save_relations()` call, `increase_version()`, `request.FILES` for icon upload, and `transaction.atomic()` for rollback safety.
 
 ### 2. Update Swagger Documentation (post_body)
 **File:** `django_project/geosight/data/serializer/dashboard.py`  
@@ -125,8 +133,8 @@ Use `self.client.post` with `format='multipart'` if including icon file. Use mod
 ### 5. No URL Configuration Changes
 The ViewSet is already registered in `django_project/geosight/data/urls_v1.py` via `router.register(r'dashboards', DashboardViewSet, basename='dashboards')`. Adding `create` automatically exposes POST.
 
-### 6. Consider Input Serializer
-Optionally create a dedicated DRF serializer for input validation to align with other ViewSets. However, reusing `DashboardForm` is acceptable and maintains consistency with web UI.
+### 6. Input Validation Approach
+Reuse `DashboardForm` for input validation, consistent with the web UI and existing API patterns (e.g., `IndicatorViewSet`, `ContextLayerViewSet`). No separate input serializer is needed.
 
 ### 7. Review File Upload Handling
 `DashboardForm` includes an optional `icon` (ImageField). The `create` method passes `request.FILES` to the form. DRF's `request.data` includes files for multipart uploads, but using `request.FILES` explicitly is safer.
