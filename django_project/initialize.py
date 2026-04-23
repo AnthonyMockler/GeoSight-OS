@@ -10,31 +10,30 @@ Contact : geosight-no-reply@unicef.org
     (at your option) any later version.
 
 """
-__author__ = 'irwan@kartoza.com'
-__date__ = '13/06/2023'
-__copyright__ = ('Copyright 2023, Unicef')
 
-import os
-import time
+__author__ = "irwan@kartoza.com"
+__date__ = "13/06/2023"
+__copyright__ = "Copyright 2023, Unicef"
 
 import django
-
-from core.utils import create_superuser
+import os
+import shutil
+import time
 
 django.setup()
 
 #########################################################
-# Imports
+# Imports (after Django setup)
 #########################################################
-from django.conf import settings
 from django.db import connection
 from django.db.utils import OperationalError
 from django.core.management import call_command
+from core.utils import create_superuser
 
 # Getting the secrets
-admin_username = os.getenv('ADMIN_USERNAME')
-admin_password = os.getenv('ADMIN_PASSWORD')
-admin_email = os.getenv('ADMIN_EMAIL')
+admin_username = os.getenv("ADMIN_USERNAME")
+admin_password = os.getenv("ADMIN_PASSWORD")
+admin_email = os.getenv("ADMIN_EMAIL")
 
 #########################################################
 # 1. Waiting for PostgreSQL
@@ -58,15 +57,32 @@ connection.close()
 
 print("-----------------------------------------------------")
 print("2. Running the migrations")
-call_command('migrate', '--noinput')
+call_command("migrate", "--noinput")
 
 #########################################################
 # 3. Collecting static files
 #########################################################
 
 print("-----------------------------------------------------")
-print("4. Collecting static files to " + settings.STATIC_ROOT)
-call_command('collectstatic', '--noinput', verbosity=0)
+print("4. Collecting static files")
+folder = "/home/web/static"
+try:
+    for filename in os.listdir(folder):
+        file_path = os.path.join(folder, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            print(f"{file_path} deleted")
+        except Exception as e:
+            print(f"{e}")
+            pass
+except Exception as e:
+    print(f"{e}")
+    pass
+
+call_command("collectstatic", "--noinput", verbosity=0)
 
 #########################################################
 # 4. Remove all cache
@@ -77,11 +93,11 @@ print("5. Remove all cache version is different")
 from core.context_processors.global_context import project_version
 from django.core.cache import cache
 
-if cache.get('APP_KEY') != project_version(None):
+if cache.get("APP_KEY") != project_version(None):
     try:
-        for key in cache.keys('*/api*'):
+        for key in cache.keys("*/api*"):
             cache.delete(key)
-        cache.set('APP_KEY', project_version(None))
+        cache.set("APP_KEY", project_version(None))
         print("Version is different, remove all")
     except Exception:
         pass
@@ -98,7 +114,7 @@ try:
 
     RestartFunctions().restart_log_sata_save_progress()
 except Exception as e:
-    print(f'{e}')
+    print(f"{e}")
     pass
 
 #########################################################
@@ -119,19 +135,14 @@ try:
 
     print("-----------------------------------------------------")
     print("8. Create default domain for tenant")
-    app_domain = os.getenv('APP_DOMAIN', 'localhost')
-    tenant, _ = Tenant.objects.get_or_create(
-        schema_name='public', name='Main'
-    )
+    app_domain = os.getenv("APP_DOMAIN", "localhost")
+    tenant, _ = Tenant.objects.get_or_create(schema_name="public", name="Main")
     Domain.objects.get_or_create(
-        domain=app_domain,
-        tenant=tenant, defaults={
-            'is_primary': True
-        }
+        domain=app_domain, tenant=tenant, defaults={"is_primary": True}
     )
 
 except Exception as e:
-    print(f'{e}')
+    print(f"{e}")
     pass
 
 #########################################################
@@ -147,31 +158,5 @@ try:
     print("8. Update the version of data")
     Dashboard.objects.all().update(version_data=timezone.now())
 except Exception as e:
-    print(f'{e}')
+    print(f"{e}")
     pass
-
-#########################################################
-# 9. Pruning old static file versions
-#########################################################
-
-print("-----------------------------------------------------")
-try:
-    print("9. Pruning old static file versions")
-    call_command('prune_static_versions')
-except Exception as e:
-    print(f'{e}')
-    pass
-
-#########################################################
-# 10. Initialize kartoza data
-#########################################################
-initial_kartoza_data = os.getenv('INITIAL_KARTOZA_DATA', 'False')
-plugins = os.getenv('PLUGINS', '')
-if initial_kartoza_data.lower() == 'true' and 'data_restorer' in plugins:
-    try:
-        print("-----------------------------------------------------")
-        print("10. Initialize kartoza data")
-        call_command('load_kartoza_default')
-    except Exception as e:
-        print(f'{e}')
-        pass

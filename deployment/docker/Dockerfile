@@ -27,7 +27,7 @@ MAINTAINER Irwan Fathurrahman<meomancer@gmail.com>
 # Pandoc needed to generate rst dumps, uic compressor needed for django-pipeline
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update -y
-RUN apt-get install -y jq wget python3-pip python3-dev gdal-bin gettext libcurl4-openssl-dev libssl-dev yui-compressor git vim
+RUN apt-get install -y jq wget python3-pip python3-dev python3-setuptools python3-wheel gdal-bin gettext libcurl4-openssl-dev libssl-dev yui-compressor git vim
 RUN apt-get update -y
 RUN apt-get install -y libgdal-dev python3-gdal
 RUN export GDAL_VERSION=$(gdal-config --version)
@@ -44,8 +44,9 @@ ENV LANGUAGE en_ZA:en
 ENV LC_ALL en_ZA.UTF-8
 
 ADD deployment/docker/requirements.txt /requirements.txt
-RUN python3 -m pip install --upgrade pip setuptools wheel
-RUN python3 -m pip install -r /requirements.txt
+RUN pip3 install --upgrade pip setuptools wheel && pip install --upgrade pip setuptools wheel
+RUN pip install --no-build-isolation Cython
+RUN pip install --no-build-isolation -r /requirements.txt
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
@@ -80,10 +81,7 @@ RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
 # Test command (optional)
 CMD ["chromedriver", "--version"]
 
-# Run NPM
 ADD django_project /home/web/django_project
-WORKDIR /home/web/django_project/frontend
-RUN npm install --verbose && npm run build
 
 # Open port 8080 as we will be running our uwsgi socket on that
 EXPOSE 8080
@@ -125,3 +123,9 @@ EXPOSE 8080
 EXPOSE 22
 
 CMD ["/usr/sbin/sshd", "-D"]
+
+FROM dev AS test
+
+ADD django_project /home/web/django_project
+WORKDIR /home/web/django_project/frontend
+RUN npm install --verbose && npm run build

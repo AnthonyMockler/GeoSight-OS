@@ -10,10 +10,7 @@ Contact : geosight-no-reply@unicef.org
     (at your option) any later version.
 
 """
-__author__ = 'irwan@kartoza.com'
-__date__ = '13/06/2023'
-__copyright__ = ('Copyright 2023, Unicef')
 
-import django
-
-django.setup()
+__author__ = "irwan@kartoza.com"
+__date__ = "13/06/2023"
+__copyright__ = "Copyright 2023, Unicef"
