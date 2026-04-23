@@ -14,10 +14,10 @@ __author__ = 'irwan@kartoza.com'
 __date__ = '13/06/2023'
 __copyright__ = ('Copyright 2023, Unicef')
 
-import django
 import os
-import shutil
 import time
+
+import django
 
 from core.utils import create_superuser
 
@@ -26,6 +26,7 @@ django.setup()
 #########################################################
 # Imports
 #########################################################
+from django.conf import settings
 from django.db import connection
 from django.db.utils import OperationalError
 from django.core.management import call_command
@@ -64,24 +65,7 @@ call_command('migrate', '--noinput')
 #########################################################
 
 print("-----------------------------------------------------")
-print("4. Collecting static files")
-folder = '/home/web/static'
-try:
-    for filename in os.listdir(folder):
-        file_path = os.path.join(folder, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-            print(f'{file_path} deleted')
-        except Exception as e:
-            print(f'{e}')
-            pass
-except Exception as e:
-    print(f'{e}')
-    pass
-
+print("4. Collecting static files to " + settings.STATIC_ROOT)
 call_command('collectstatic', '--noinput', verbosity=0)
 
 #########################################################
@@ -165,3 +149,29 @@ try:
 except Exception as e:
     print(f'{e}')
     pass
+
+#########################################################
+# 9. Pruning old static file versions
+#########################################################
+
+print("-----------------------------------------------------")
+try:
+    print("9. Pruning old static file versions")
+    call_command('prune_static_versions')
+except Exception as e:
+    print(f'{e}')
+    pass
+
+#########################################################
+# 10. Initialize kartoza data
+#########################################################
+initial_kartoza_data = os.getenv('INITIAL_KARTOZA_DATA', 'False')
+plugins = os.getenv('PLUGINS', '')
+if initial_kartoza_data.lower() == 'true' and 'data_restorer' in plugins:
+    try:
+        print("-----------------------------------------------------")
+        print("10. Initialize kartoza data")
+        call_command('load_kartoza_default')
+    except Exception as e:
+        print(f'{e}')
+        pass
