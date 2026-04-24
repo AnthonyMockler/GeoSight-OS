@@ -52,3 +52,13 @@ deployment/.cache/
 # load-test data
 load-test/data/*
 load-test/output/*
+
+# macOS and local tool noise
+.DS_Store
+**/.DS_Store
+.agents/
+.opencode/
+_bmad/
+build.log
+deployment/build.log
+cookies.txt
