@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 
@@ -9,35 +9,56 @@ const TEST_ICON_PATH = path.resolve(
 );
 const TEST_ICON_BUFFER = fs.readFileSync(TEST_ICON_PATH);
 
-const waitForAdminProjectListReady = async (page: any): Promise<void> => {
-  try {
-    await expect(page.getByText("Create New Project")).toBeVisible({
-      timeout: 10_000,
-    });
-  } catch {
-    await expect(page.getByText("Project Name")).toBeVisible({
-      timeout: 60_000,
-    });
-  }
-  await expect(
-    page.locator('.AdminContent [role="progressbar"]:visible'),
-  ).toHaveCount(0, {
-    timeout: 60_000,
-  });
+const csrfTokenFromHtml = (html: string): string => {
+  const inputToken = html.match(
+    /name="csrfmiddlewaretoken"\s+value="([^"]+)"/,
+  )?.[1];
+  const scriptToken = html.match(
+    /const csrfmiddlewaretoken = '([^']+)'/,
+  )?.[1];
+  return inputToken || scriptToken || "";
 };
 
-const csrfTokenFromContext = async (page: any): Promise<string> => {
-  const cookies = await page.context().cookies();
-  const csrfToken = cookies.find((cookie: any) => cookie.name === "csrftoken");
-  return csrfToken?.value || "";
+const authenticatedCreatorContext = async (baseURL?: string) => {
+  const context = await playwrightRequest.newContext({
+    baseURL: baseURL || "http://localhost:2000",
+  });
+
+  const loginPage = await context.get("/login");
+  const loginToken = csrfTokenFromHtml(await loginPage.text());
+  expect(loginToken.length).toBeGreaterThan(0);
+
+  const loginResponse = await context.post("/en-us/login/", {
+    headers: {
+      "X-CSRFToken": loginToken,
+      Referer: loginPage.url(),
+    },
+    form: {
+      csrfmiddlewaretoken: loginToken,
+      username: "creator",
+      password: "creator",
+    },
+  });
+  expect(loginResponse.ok()).toBeTruthy();
+
+  const projectPage = await context.get("/admin/project/");
+  expect(projectPage.ok()).toBeTruthy();
+  const csrfToken = csrfTokenFromHtml(await projectPage.text());
+  expect(csrfToken.length).toBeGreaterThan(0);
+
+  return {
+    context,
+    csrfToken,
+    referer: projectPage.url(),
+  };
 };
 
 const buildPayloadFromRealDashboard = async (
-  page: any,
+  context: any,
   name: string,
   slug: string,
 ): Promise<Record<string, string>> => {
-  const sourceResponse = await page.request.get(
+  const sourceResponse = await context.get(
     `/api/dashboard/${SOURCE_DASHBOARD_SLUG}/data`,
   );
   expect(sourceResponse.ok()).toBeTruthy();
@@ -69,24 +90,24 @@ const buildPayloadFromRealDashboard = async (
 };
 
 test.describe("Dashboard v1 create API", () => {
+  test.describe.configure({ mode: "serial" });
+
   test("Creator can create dashboard using real dashboard payload", async ({
-    page,
+    baseURL,
   }) => {
-    await page.goto("/admin/project/");
-    await waitForAdminProjectListReady(page);
-
-    const csrfToken = await csrfTokenFromContext(page);
-    expect(csrfToken.length).toBeGreaterThan(0);
-
+    const { context, csrfToken, referer } = await authenticatedCreatorContext(
+      baseURL,
+    );
     const uniqueSuffix = Date.now();
     const name = `API V1 Create ${uniqueSuffix}`;
     const slug = `api-v1-create-${uniqueSuffix}`;
-    const payload = await buildPayloadFromRealDashboard(page, name, slug);
+    const payload = await buildPayloadFromRealDashboard(context, name, slug);
 
-    const createResponse = await page.request.post("/api/v1/dashboards/", {
+    const createResponse = await context.post("/api/v1/dashboards/", {
+      timeout: 60_000,
       headers: {
         "X-CSRFToken": csrfToken,
-        Referer: page.url(),
+        Referer: referer,
       },
       form: payload,
     });
@@ -96,36 +117,33 @@ test.describe("Dashboard v1 create API", () => {
     expect(createdDashboard.slug).toBe(slug);
     expect(createdDashboard.name).toBe(name);
 
-    const deleteResponse = await page.request.delete(
-      `/api/v1/dashboards/${slug}/`,
-      {
-        headers: {
-          "X-CSRFToken": csrfToken,
-          Referer: page.url(),
-        },
+    const deleteResponse = await context.delete(`/api/v1/dashboards/${slug}/`, {
+      timeout: 60_000,
+      headers: {
+        "X-CSRFToken": csrfToken,
+        Referer: referer,
       },
-    );
+    });
     expect(deleteResponse.status()).toBe(204);
+    await context.dispose();
   });
 
   test("Creator can create dashboard with multipart icon upload", async ({
-    page,
+    baseURL,
   }) => {
-    await page.goto("/admin/project/");
-    await waitForAdminProjectListReady(page);
-
-    const csrfToken = await csrfTokenFromContext(page);
-    expect(csrfToken.length).toBeGreaterThan(0);
-
+    const { context, csrfToken, referer } = await authenticatedCreatorContext(
+      baseURL,
+    );
     const uniqueSuffix = Date.now() + 1;
     const name = `API V1 Multipart ${uniqueSuffix}`;
     const slug = `api-v1-multipart-${uniqueSuffix}`;
-    const payload = await buildPayloadFromRealDashboard(page, name, slug);
+    const payload = await buildPayloadFromRealDashboard(context, name, slug);
 
-    const createResponse = await page.request.post("/api/v1/dashboards/", {
+    const createResponse = await context.post("/api/v1/dashboards/", {
+      timeout: 60_000,
       headers: {
         "X-CSRFToken": csrfToken,
-        Referer: page.url(),
+        Referer: referer,
       },
       multipart: {
         ...payload,
@@ -141,31 +159,29 @@ test.describe("Dashboard v1 create API", () => {
     const createdDashboard = await createResponse.json();
     expect(createdDashboard.slug).toBe(slug);
 
-    const deleteResponse = await page.request.delete(
-      `/api/v1/dashboards/${slug}/`,
-      {
-        headers: {
-          "X-CSRFToken": csrfToken,
-          Referer: page.url(),
-        },
+    const deleteResponse = await context.delete(`/api/v1/dashboards/${slug}/`, {
+      timeout: 60_000,
+      headers: {
+        "X-CSRFToken": csrfToken,
+        Referer: referer,
       },
-    );
+    });
     expect(deleteResponse.status()).toBe(204);
+    await context.dispose();
   });
 
   test("Creator receives validation error for invalid payload", async ({
-    page,
+    baseURL,
   }) => {
-    await page.goto("/admin/project/");
-    await waitForAdminProjectListReady(page);
+    const { context, csrfToken, referer } = await authenticatedCreatorContext(
+      baseURL,
+    );
 
-    const csrfToken = await csrfTokenFromContext(page);
-    expect(csrfToken.length).toBeGreaterThan(0);
-
-    const response = await page.request.post("/api/v1/dashboards/", {
+    const response = await context.post("/api/v1/dashboards/", {
+      timeout: 60_000,
       headers: {
         "X-CSRFToken": csrfToken,
-        Referer: page.url(),
+        Referer: referer,
       },
       form: {
         name: `API V1 Invalid ${Date.now()}`,
@@ -177,5 +193,6 @@ test.describe("Dashboard v1 create API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.detail).toContain("extent");
+    await context.dispose();
   });
 });

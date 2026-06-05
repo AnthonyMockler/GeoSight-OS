@@ -1,26 +1,49 @@
 import { expect, request as playwrightRequest, test } from "@playwright/test";
 
-const csrfTokenFromContext = async (page: any): Promise<string> => {
-  const cookies = await page.context().cookies();
-  const csrfToken = cookies.find((cookie: any) => cookie.name === "csrftoken");
-  return csrfToken?.value || "";
+const csrfTokenFromHtml = (html: string): string => {
+  const inputToken = html.match(
+    /name="csrfmiddlewaretoken"\s+value="([^"]+)"/,
+  )?.[1];
+  const scriptToken = html.match(
+    /const csrfmiddlewaretoken = '([^']+)'/,
+  )?.[1];
+  return inputToken || scriptToken || "";
 };
 
-const waitForAdminProjectListReady = async (page: any): Promise<void> => {
-  try {
-    await expect(page.getByText("Create New Project")).toBeVisible({
-      timeout: 10_000,
-    });
-  } catch {
-    await expect(page.getByText("Project Name")).toBeVisible({
-      timeout: 60_000,
-    });
-  }
-  await expect(
-    page.locator('.AdminContent [role="progressbar"]:visible'),
-  ).toHaveCount(0, {
-    timeout: 60_000,
+const authenticatedContributorContext = async (baseURL?: string) => {
+  const context = await playwrightRequest.newContext({
+    baseURL: baseURL || "http://localhost:2000",
   });
+
+  const loginPage = await context.get("/login");
+  const loginToken = csrfTokenFromHtml(await loginPage.text());
+  expect(loginToken.length).toBeGreaterThan(0);
+
+  const loginResponse = await context.post("/en-us/login/", {
+    headers: {
+      "X-CSRFToken": loginToken,
+      Referer: loginPage.url(),
+    },
+    form: {
+      csrfmiddlewaretoken: loginToken,
+      username: "contributor",
+      password: "contributor",
+    },
+  });
+  expect(loginResponse.ok()).toBeTruthy();
+
+  const projectPage = await context.get("/admin/project/");
+  expect(projectPage.ok()).toBeTruthy();
+  expect(new URL(projectPage.url()).pathname).toContain("/admin/project/");
+
+  const csrfToken = csrfTokenFromHtml(await projectPage.text());
+  expect(csrfToken.length).toBeGreaterThan(0);
+
+  return {
+    context,
+    csrfToken,
+    referer: projectPage.url(),
+  };
 };
 
 test.describe("Dashboard v1 create API permissions", () => {
@@ -46,18 +69,16 @@ test.describe("Dashboard v1 create API permissions", () => {
   });
 
   test("Contributor cannot create dashboard via v1 endpoint", async ({
-    page,
+    baseURL,
   }) => {
-    await page.goto("/admin/project/");
-    await waitForAdminProjectListReady(page);
+    const { context, csrfToken, referer } =
+      await authenticatedContributorContext(baseURL);
 
-    const csrfToken = await csrfTokenFromContext(page);
-    expect(csrfToken.length).toBeGreaterThan(0);
-
-    const response = await page.request.post("/api/v1/dashboards/", {
+    const response = await context.post("/api/v1/dashboards/", {
+      timeout: 60_000,
       headers: {
         "X-CSRFToken": csrfToken,
-        Referer: page.url(),
+        Referer: referer,
       },
       form: {
         name: "Unauthorized Create Attempt",
@@ -68,5 +89,6 @@ test.describe("Dashboard v1 create API permissions", () => {
 
     expect(response.status()).toBe(403);
     await response.json();
+    await context.dispose();
   });
 });
